@@ -1,0 +1,684 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#0ea5e9" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lagerverwaltung – Drag&Drop Demo (mobilfreundlich)</title>
+</head>
+<body>
+  <h1>PWA-Test</h1>
+  <p>Wenn du diese Datei über GitHub Pages öffnest, sollte sie als installierbare App erkannt werden.</p>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').catch(()=>{});
+    }
+  </script>
+</body>
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"; background: var(--bg); color: var(--ink); }
+    h1 { font-size: 22px; margin: 0 0 6px; }
+    h2 { font-size: 16px; margin: 0; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 16px; }
+    .row { display: grid; grid-template-columns: 1fr; gap: 16px; }
+    @media (min-width: 900px) { .row { grid-template-columns: 2fr 1fr; } }
+    .panel { background: var(--card); border: 1px solid var(--brd); border-radius: var(--radius); box-shadow: var(--shadow); padding: 12px; }
+    .cols { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 2px; }
+    .col { flex: 1 0 280px; }
+    .col-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    .col-body { display: flex; flex-direction: column; gap: 10px; min-height: 120px; padding: 4px; border: 1px dashed var(--brd); border-radius: 12px; }
+    .badge { font-size: 11px; padding: 2px 8px; border: 1px solid var(--brd); border-radius: 999px; color: var(--muted); }
+    .muted { color: var(--muted); }
+
+    /* Karten */
+    .card { position: relative; background: #fff; border: 1px solid var(--brd); border-radius: 12px; padding: 10px; box-shadow: var(--shadow); touch-action: none; }
+    .card h3 { margin: 0 0 6px; font-size: 14px; font-weight: 600; }
+    .card .row2 { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .card .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 11px; color: var(--muted); }
+
+    /* Drag Visuals */
+    .dragging { opacity: 0.3; }
+    .drag-ghost { position: fixed; top: 0; left: 0; pointer-events: none; transform: translate(-9999px, -9999px); z-index: 9999; width: 260px; }
+    .drop-target { outline: 2px dashed var(--ring); outline-offset: 2px; }
+
+    /* Toolbar */
+    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; }
+    .btn, label.btn { font-size: 13px; padding: 6px 10px; border: 1px solid var(--brd); border-radius: 10px; background: #fff; cursor: pointer; }
+    input[type=file] { display: none; }
+
+    /* Protokoll */
+    .log { max-height: 70vh; overflow: auto; }
+    .log li { list-style: none; border: 1px solid var(--brd); border-radius: 10px; padding: 8px; margin-bottom: 8px; }
+    .log .ts { font-size: 11px; color: var(--muted); }
+
+    /* Tests */
+    .tests { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+    .test-pass { color: #166534; background: #dcfce7; border: 1px solid #86efac; padding: 6px 8px; border-radius: 8px; }
+    .test-fail { color: #991b1b; background: #fee2e2; border: 1px solid #fecaca; padding: 6px 8px; border-radius: 8px; }
+  </style>
+  <!-- PWA: iOS splash fallbacks (optional) could be added later -->
+</head>
+<body>
+  <div class="container">
+    <header class="panel" style="margin-bottom:12px;">
+      <h1>Lagerverwaltung – Drag & Drop (Demo, ohne externe Bibliotheken)</h1>
+      <p class="muted">Langes Antippen (Mobil) oder Klicken & Ziehen (Desktop). Loslassen über einer Spalte bucht um. Teilmengen per Dialog. Daten bleiben lokal.</p>
+    </header>
+
+    <section class="row">
+      <div class="panel">
+        <div class="col-head" style="margin-bottom:8px;">
+          <h2>Bestände</h2>
+          <div class="toolbar" id="top-toolbar">
+            <label class="btn" for="impHome">Heimatplätze CSV laden<input id="impHome" type="file" accept=".csv,text/csv"/></label>
+            <label class="btn" for="impSlots">Lagerplätze CSV laden<input id="impSlots" type="file" accept=".csv,text/csv"/></label>
+            <button class="btn" id="btnExportSlots">Lagerplätze exportieren</button>
+            <button class="btn" id="btnExportJSON">Export JSON</button>
+            <button class="btn" id="btnExportCSV">Export CSV</button>
+            <label class="btn" for="impJson">Import JSON<input id="impJson" type="file" accept="application/json"/></label>
+            <label class="btn" for="impCsv">Import CSV<input id="impCsv" type="file" accept=".csv,text/csv"/></label>
+            <label class="btn"><input type="checkbox" id="cbLock"/> Sperre Heimatplatz</label>
+            <label class="btn"><input type="checkbox" id="cbOverride"/> Override erlauben</label>
+            <button class="btn" id="btnAdminLogin">Admin Login</button>
+            <button class="btn" id="btnSetPin">PIN setzen</button>
+            <span class="badge" id="adminState">Gast</span>
+            <label class="btn"><input type="checkbox" id="cbTime" checked/> Zeit vorhanden</label>
+            <label class="btn"><input type="checkbox" id="cbCap" checked/> Kapazität frei</label>
+            <button class="btn" id="btnReset">Demo zurücksetzen</button>
+          </div>
+        </div>
+        <div class="cols">
+          <div class="col" data-col="inbound">
+            <div class="col-head"><h2>Wareneingang</h2><span class="badge" id="cnt-inbound">0</span></div>
+            <div class="col-body" id="inbound"></div>
+          </div>
+          <div class="col" data-col="storage">
+            <div class="col-head"><h2>Lagerplatz</h2><span class="badge" id="cnt-storage">0</span></div>
+            <div class="col-body" id="storage"></div>
+          </div>
+          <div class="col" data-col="pbs">
+            <div class="col-head"><h2>Pulverbeschichtung</h2><span class="badge" id="cnt-pbs">0</span></div>
+            <div class="col-body" id="pbs"></div>
+          </div>
+          <div class="col" data-col="robot">
+            <div class="col-head"><h2>Roboter</h2><span class="badge" id="cnt-robot">0</span></div>
+            <div class="col-body" id="robot"></div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="panel">
+        <div class="col-head"><h2>Protokoll</h2><button class="btn" id="btnLogClear">Leeren</button></div>
+        <ul class="log" id="log"></ul>
+        <div class="tests">
+          <h2>Integrierte Tests</h2>
+          <button class="btn" id="t0">Test 0: `invoke` vorhanden</button>
+          <button class="btn" id="t1">Test 1: Ganze Menge bewegen (i1 → storage)</button>
+          <button class="btn" id="t2">Test 2: Teilmenge bewegen (i2 → pbs, 7 Stück)</button>
+          <button class="btn" id="t3">Test 3: Export/Import Roundtrip</button>
+          <button class="btn" id="t4">Test 4: Slot-Zuordnung (i1 → storage mit Slot)</button>
+          <button class="btn" id="t5">Test 5: Sperre (i1 → storage falscher Slot geblockt)</button>
+          <button class="btn" id="t6">Test 6: Override braucht Admin (ohne Login blockiert)</button>
+          <button class="btn" id="t7">Test 7: CSV Export – BOM & Umlaute</button>
+          <button class="btn" id="t8a">Test 8a: SOP – Heimplatz, keine Zeit/Kapazität ⇒ Puffer</button>
+          <button class="btn" id="t8b">Test 8b: SOP – Heimplatz, Zeit+Kapazität ⇒ Einlagern</button>
+          <button class="btn" id="t9">Test 9: Doc anlegen & Bild verknüpfen</button>
+          <button class="btn" id="t10">Test 10: Statuswechsel nur mit Bild</button>
+          <div id="testout"></div>
+        </div>
+      </aside>
+    </section>
+
+    <!-- ===================== -->
+    <!-- Wareneingang – Lieferscheine -->
+    <!-- ===================== -->
+    <section class="row" id="inbound-docs">
+      <div class="panel">
+        <div class="col-head" style="margin-bottom:8px;">
+          <h2>Wareneingang – ohne Zeichnung / mit Zeichnung</h2>
+          <div class="toolbar">
+            <button class="btn" id="btnNewDoc">Neuen Datensatz anlegen</button>
+            <input id="searchLs" type="search" placeholder="Schnellsuche: LS‑Nr. oder Datum (YYYY‑MM‑DD)" style="min-width:260px; padding:6px; border:1px solid var(--brd); border-radius:10px;"/>
+            <button class="btn" id="btnSearch">Suchen</button>
+          </div>
+        </div>
+        <div class="cols">
+          <div class="col" style="min-width:320px;">
+            <div class="col-head"><h2>Ohne Zeichnung</h2><span class="badge" id="cnt-docs-ohne">0</span></div>
+            <div class="col-body" id="docs-ohne"></div>
+          </div>
+          <div class="col" style="min-width:320px;">
+            <div class="col-head"><h2>Mit Zeichnung</h2><span class="badge" id="cnt-docs-mit">0</span></div>
+            <div class="col-body" id="docs-mit"></div>
+          </div>
+          <div class="col" style="min-width:320px;">
+            <div class="col-head"><h2>Treffer</h2><span class="badge" id="cnt-docs-hit">0</span></div>
+            <div class="col-body" id="docs-hit"></div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="panel">
+        <div class="col-head"><h2>Details</h2></div>
+        <div id="doc-detail" class="muted">Kein Datensatz ausgewählt.</div>
+      </aside>
+    </section>
+
+    <!-- Dialog: neuen Datensatz anlegen -->
+    <dialog id="dlg-newdoc" style="border:1px solid var(--brd); border-radius:12px; padding:12px; max-width:520px;">
+      <form method="dialog">
+        <h3 style="margin:0 0 8px; font-size:16px; font-weight:600;">Wareneingang – ohne Zeichnung</h3>
+        <div style="display:grid; grid-template-columns: 1fr; gap:10px;">
+          <label>Lieferscheinnummer *<br/><input id="nd-ls" required placeholder="z. B. 4711-ABC" style="width:100%; padding:8px; border:1px solid var(--brd); border-radius:8px;"/></label>
+          <label>Lieferant *<br/><input id="nd-supp" required placeholder="Lieferant" style="width:100%; padding:8px; border:1px solid var(--brd); border-radius:8px;"/></label>
+          <label>Datum *<br/><input id="nd-date" type="date" required style="width:100%; padding:8px; border:1px solid var(--brd); border-radius:8px;"/></label>
+        </div>
+        <div class="muted" style="margin-top:6px;">Status nach dem Speichern: <b>ohne_zeichnung</b></div>
+        <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;">
+          <button value="cancel" class="btn" type="reset">Abbrechen</button>
+          <button value="ok" class="btn" id="nd-ok" style="background:#0ea5e9; color:#fff; border-color:#7dd3fc;">Speichern</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Dialog: Bilder verwalten / fotografieren -->
+    <dialog id="dlg-images" style="border:1px solid var(--brd); border-radius:12px; padding:12px; max-width:720px;">
+      <form method="dialog">
+        <h3 style="margin:0 0 8px; font-size:16px; font-weight:600;">Lieferschein fotografieren / Bilder verwalten</h3>
+        <div class="toolbar" style="margin-bottom:8px;">
+          <label class="btn" for="img-input">Kamera öffnen<input id="img-input" type="file" accept="image/*" capture="environment" multiple/></label>
+          <button class="btn" type="button" id="img-add">Weitere Seite</button>
+          <button class="btn" type="button" id="img-finish">Fertig</button>
+        </div>
+        <div id="img-list" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:10px; max-height:50vh; overflow:auto;"></div>
+        <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;">
+          <button value="cancel" class="btn" type="reset">Schließen</button>
+        </div>
+      </form>
+    </dialog>
+
+    <footer class="muted" style="font-size:12px; margin-top:10px;">
+      Keine externen Skripte. Für Produktion: IndexedDB/Dexie + Login/Rollen + Server-Sync.
+    </footer>
+  </div>
+
+  <!-- Karten-Template -->
+  <template id="tpl-card">
+    <article class="card" data-id="">
+      <div class="row2">
+        <h3 class="name"></h3>
+        <span class="badge cont"></span>
+      </div>
+      <div class="muted">Menge: <b class="qty"></b></div>
+      <div class="mono">ID: <span class="id"></span> · MAT: <span class="mat"></span></div>
+    </article>
+  </template>
+
+  <!-- Storage-Slot Auswahl (Dropdown) -->
+  <dialog id="dlg-slot" style="border:1px solid var(--brd); border-radius:12px; padding:12px; max-width:420px;">
+    <form method="dialog">
+      <h3 style="margin:0 0 8px; font-size:16px; font-weight:600;">Lagerplatz auswählen</h3>
+      <p class="muted" id="dlg-slot-desc" style="margin:0 0 8px;">Bitte Lagerplatz (P‑R2/P‑R3) wählen.</p>
+      <div style="display:flex; gap:8px; margin-bottom:8px;">
+        <input id="slot-search" type="text" placeholder="Suche… (z. B. 2-17)" style="flex:1; padding:8px; border:1px solid var(--brd); border-radius:8px;" />
+      </div>
+      <div style="display:flex; gap:8px;">
+        <select id="slot-select" size="10" style="flex:1; width:100%; padding:8px; border:1px solid var(--brd); border-radius:8px;"></select>
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px;">
+        <button value="cancel" class="btn" type="reset">Abbrechen</button>
+        <button value="ok" class="btn" id="slot-ok" style="background:#0ea5e9; color:#fff; border-color:#7dd3fc;">Übernehmen</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Admin Auth Dialog -->
+  <dialog id="dlg-auth" style="border:1px solid var(--brd); border-radius:12px; padding:12px; max-width:420px;">
+    <form method="dialog">
+      <h3 style="margin:0 0 8px; font-size:16px; font-weight:600;">Admin Login</h3>
+      <p class="muted" style="margin:0 0 8px;">Bitte Admin-PIN eingeben.</p>
+      <input id="auth-pin" type="password" placeholder="PIN" autocomplete="one-time-code" style="width:100%; padding:8px; border:1px solid var(--brd); border-radius:8px;"/>
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px;">
+        <button value="cancel" class="btn" type="reset">Abbrechen</button>
+        <button value="ok" class="btn" id="auth-ok" style="background:#16a34a; color:#fff; border-color:#86efac;">Einloggen</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Admin PIN setzen Dialog -->
+  <dialog id="dlg-pin" style="border:1px solid var(--brd); border-radius:12px; padding:12px; max-width:420px;">
+    <form method="dialog">
+      <h3 style="margin:0 0 8px; font-size:16px; font-weight:600;">Admin-PIN setzen</h3>
+      <p class="muted" style="margin:0 0 8px;">Mindestens 4 Zeichen. Bitte sicher aufbewahren.</p>
+      <input id="pin-a" type="password" placeholder="Neue PIN" style="width:100%; padding:8px; border:1px solid var(--brd); border-radius:8px; margin-bottom:8px;"/>
+      <input id="pin-b" type="password" placeholder="PIN wiederholen" style="width:100%; padding:8px; border:1px solid var(--brd); border-radius:8px;"/>
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px;">
+        <button value="cancel" class="btn" type="reset">Abbrechen</button>
+        <button value="ok" class="btn" id="pin-ok" style="background:#0ea5e9; color:#fff; border-color:#7dd3fc;">Speichern</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script>
+    // --- Härtung: globale Fallback-Variable für `invoke` (vor JEDEM Zugriff) ---
+    try { if (typeof invoke === 'undefined') { var invoke = function(){ return Promise.resolve(null); }; } } catch(e) { /* ignore */ }
+    // --- Robustes Polyfill für `invoke` ---
+    (function(){
+      if (typeof globalThis.invoke !== 'function') { globalThis.invoke = function invoke(){ return Promise.resolve(null); }; }
+      if (typeof window !== 'undefined' && typeof window.invoke !== 'function') { window.invoke = globalThis.invoke; }
+    })();
+
+    // ---- Helper ----
+    const $ = (sel, root=document) => root.querySelector(sel);
+    const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+    const pad = (n) => String(n).padStart(2,'0');
+    function ts(){ const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; }
+
+    // CSV/BOM-Utilities
+    function ensureBOM(text){ return text.startsWith('\ufeff') ? text : ('\ufeff' + text); }
+    function makeBlobForDownload(filename, text){
+      const isCsv = /\.csv$/i.test(filename);
+      const payload = isCsv ? ensureBOM(text) : text;
+      const mime = isCsv ? 'text/csv;charset=utf-8' : 'text/plain;charset=utf-8';
+      return new Blob([payload], { type: mime });
+    }
+    function download(filename, text){ const a=document.createElement('a'); const blob = makeBlobForDownload(filename, text); a.href=URL.createObjectURL(blob); a.download=filename; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 500); }
+
+    function toCSV(rows){ if(!rows||!rows.length) return ''; const headers=Object.keys(rows[0]); const esc=v=>`"${String(v??'').replace(/"/g,'""')}"`; return [headers.join(','),...rows.map(r=>headers.map(h=>esc(r[h])).join(','))].join('\n'); }
+    function fromCSV(csv){ const clean = csv.replace(/^\ufeff/, ''); const [head,...lines]=clean.split(/\r?\n/).filter(Boolean); const headers=head.split(',').map(h=>h.replace(/^"|"$/g,'')); return lines.map(line=>{ const cols=line.match(/\"(?:[^\"]|\"\")*\"|[^,]+/g)||[]; const vals=cols.map(c=>c.replace(/^"|"$/g,'').replace(/\"\"/g,'"')); const obj={}; headers.forEach((h,i)=>obj[h]=vals[i]); return obj; }); }
+
+    // ---- State ----
+    const STORAGE_KEY = 'dnd-demo-v4-nocdn-slots-home';
+    function initialData(){
+      return {
+        locations: {
+          inbound: { id: 'inbound', name: 'Wareneingang' },
+          storage: { id: 'storage', name: 'Lagerplatz' },
+          pbs: { id: 'pbs', name: 'Pulverbeschichtung' },
+          robot: { id: 'robot', name: 'Roboter' },
+        },
+        items: {
+          i1: { id:'i1', mat:'MAT-001', name:'Sensai Untergestell', qty: 40, container:'GIB', loc:'inbound', slot:'' },
+          i2: { id:'i2', mat:'MAT-002', name:'Salsa Rückenteil', qty: 50, container:'K', loc:'inbound', slot:'' },
+          i3: { id:'i3', mat:'MAT-003', name:'Fußstütze m. Klemmung', qty: 30, container:'P', loc:'storage', slot:'P-R2 1-1' },
+        },
+        homeMap: {}, // material -> fester Slot
+        settings: { lockHome: false, allowOverride: false },
+        log: []
+      };
+    }
+
+    // Lagerplätze – Default; via CSV überschreibbar
+    const SLOT_KEY = 'lager-plaetze-v1';
+    function defaultSlots(){
+      return [
+        ...Array.from({length:4}, (_,e)=> e+1).flatMap(et=> Array.from({length:27},(_,r)=> `P-R2 ${et}-${r+1}`)),
+        ...Array.from({length:2}, (_,e)=> e+1).flatMap(et=> Array.from({length:3},(_,r)=> `P-R3 ${et}-${r+1}`)),
+      ];
+    }
+    function loadSlots(){ try { const raw = JSON.parse(localStorage.getItem(SLOT_KEY)); if(Array.isArray(raw) && raw.length) return raw; } catch {} return defaultSlots(); }
+    function saveSlots(arr){ try { localStorage.setItem(SLOT_KEY, JSON.stringify(arr)); } catch {} }
+    let SLOT_LIST = loadSlots();
+
+    function load(){ try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || initialData(); } catch { return initialData(); } }
+    function save(state){ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+    let state = load();
+
+    // ---- Rendering ----
+    function render(){
+      ['inbound','storage','pbs','robot'].forEach(cid => { const el = document.getElementById(cid); if(el) el.innerHTML=''; });
+      Object.values(state.items).forEach(it => appendCard(it));
+      ['inbound','storage','pbs','robot'].forEach(cid => { const badge = document.getElementById('cnt-'+cid); if(!badge) return; const cnt = Object.values(state.items).filter(x=>x.loc===cid).length; badge.textContent = String(cnt); });
+      const logEl = $('#log');
+      logEl.innerHTML = state.log.length? '' : '<li class="muted">Noch keine Buchungen.</li>';
+      state.log.forEach((e)=>{
+        const li = document.createElement('li');
+        li.innerHTML = `<div class="ts">${e.ts}</div>
+                        <div><b>${e.typ}</b>: ${e.artikel}</div>
+                        <div>${e.von} → ${e.nach} | Menge: <b>${e.menge}</b></div>
+                        ${e.hinweis? `<div class=\"ts\">${e.hinweis}</div>`:''}`;
+        logEl.prepend(li);
+      });
+      const cb1 = $('#cbLock'); if(cb1) cb1.checked = !!(state.settings && state.settings.lockHome);
+      const cb2 = $('#cbOverride'); if(cb2) cb2.checked = !!(state.settings && state.settings.allowOverride);
+    }
+
+    function appendCard(it){
+      const host = document.getElementById(it.loc);
+      const tpl = document.getElementById('tpl-card');
+      const card = tpl.content.firstElementChild.cloneNode(true);
+      card.dataset.id = it.id;
+      card.querySelector('.name').textContent = it.name;
+      card.querySelector('.cont').textContent = it.container;
+      card.querySelector('.qty').textContent = it.qty;
+      card.querySelector('.id').textContent = it.id;
+      const matEl = card.querySelector('.mat'); if(matEl) matEl.textContent = it.mat || '-';
+      if(it.loc==='storage'){
+        const badge = document.createElement('div');
+        badge.className = 'muted';
+        badge.style.marginTop = '6px';
+        badge.innerHTML = `Lagerplatz: <b>${it.slot||'-'}</b>`;
+        card.appendChild(badge);
+      }
+      addDragHandlers(card);
+      host.appendChild(card);
+    }
+
+    // ---- Protokoll ----
+    function addLog(entry){ state.log = [{ ts: ts(), ...entry }, ...state.log].slice(0,500); save(state); render(); }
+
+    // ---- Business Logic ----
+    function moveWhole(itemId, toCol){
+      state.items[itemId].loc = toCol;
+      if(toCol !== 'storage') state.items[itemId].slot = '';
+      save(state); render();
+    }
+
+    function splitQuantityFlow(itemId, fromCol, toCol, forcedQty=null){
+      const it = state.items[itemId]; if(!it) return;
+      const max = Number(it.qty)||0;
+      let qty = forcedQty;
+      if(qty === null){
+        const qs = prompt(`Teilmenge bewegen (1–${max})?\n\nOK = Teilmenge, Abbrechen/Leer = ganze Menge.`, String(max));
+        if(qs===null || qs===''){ qty = max; } else { qty = Math.max(1, Math.min(max, Number(qs)||max)); }
+      }
+
+      const timeOK = $('#cbTime')?.checked ?? true;
+      const capOK  = $('#cbCap')?.checked ?? true;
+      const homeSlot = it.mat && state.homeMap[it.mat];
+
+      const afterChoose = (slot)=>{
+        if(qty >= max){
+          state.items[itemId].loc = toCol;
+          state.items[itemId].slot = (toCol==='storage')? (slot||''): '';
+          save(state); render();
+          addLog({ typ: 'Umbuchung', artikel: it.name, von: state.locations[fromCol].name, nach: state.locations[toCol].name + (slot? ` (${slot})`:'') , menge: qty, hinweis: qty===max? '100% bewegt':'' });
+          return;
+        }
+        const newId = `i${Math.random().toString(36).slice(2,8)}`;
+        const rest = max - qty;
+        state.items[itemId].qty = rest;
+        state.items[newId] = { ...it, id: newId, qty, loc: toCol, slot: (toCol==='storage')? (slot||''): '' };
+        save(state); render();
+        addLog({ typ: 'Umbuchung (Teilmenge)', artikel: it.name, von: state.locations[fromCol].name, nach: state.locations[toCol].name + (slot? ` (${slot})`:'') , menge: qty, hinweis: `Rest am Ursprung: ${rest}` });
+      };
+
+      // SOP-Logik nur für Wareneingang -> Lagerplatz
+      if(fromCol==='inbound' && toCol==='storage'){
+        if(homeSlot){
+          if(!(timeOK && capOK)){
+            addLog({ typ:'Puffer', artikel: it.name, von: state.locations[fromCol].name, nach:'Wareneingangs-Puffer', menge: qty, hinweis:'Zeit/Kapazität fehlen' });
+            return; // bleibt im Puffer (inbound)
+          }
+          // Zeit & Kapazität ok: Heimplatz direkt
+          afterChoose(homeSlot);
+          return;
+        } else {
+          if(!timeOK){
+            addLog({ typ:'Puffer', artikel: it.name, von: state.locations[fromCol].name, nach:'Wareneingangs-Puffer', menge: qty, hinweis:'Keine Zeit' });
+            return;
+          }
+          // Ohne Heimplatz: variablen Platz wählen
+          return chooseStorageSlot(it.slot).then(sel=>{ if(sel) afterChoose(sel); else addLog({ typ:'Puffer', artikel: it.name, von: state.locations[fromCol].name, nach:'Wareneingangs-Puffer', menge: qty, hinweis:'Kein Platz gewählt' }); });
+        }
+      }
+
+      if(toCol==='storage') chooseStorageSlot(it.slot).then(sel=>{ if(sel) afterChoose(sel); });
+      else afterChoose('');
+    }
+
+    // ---- Drag (Pointer Events, mobil-tauglich) ----
+    let drag = null; // {id, fromCol, ghost}
+    function addDragHandlers(card){
+      let pressTimer = null; // Long-press on touch
+      let isPointerDown = false;
+
+      const startDrag = (clientX, clientY) => {
+        if(drag) return;
+        const id = card.dataset.id; const fromCol = findColumnId(card);
+        drag = { id, fromCol, ghost: createGhost(card) };
+        card.classList.add('dragging');
+        positionGhost(drag.ghost, clientX, clientY);
+        document.addEventListener('pointermove', onMove);
+        document.addEventListener('pointerup', onUp, { once: true });
+      };
+
+      const onPointerDown = (e) => {
+        isPointerDown = true;
+        if(e.pointerType === 'mouse') {
+          startDrag(e.clientX, e.clientY);
+        } else {
+          pressTimer = setTimeout(()=> startDrag(e.clientX, e.clientY), 160);
+        }
+      };
+      const onPointerCancel = () => { isPointerDown = false; clearTimeout(pressTimer); pressTimer = null; };
+
+      const onMove = (e) => { if(!drag) return; positionGhost(drag.ghost, e.clientX, e.clientY); highlightColumnAt(e.clientX, e.clientY); };
+      const onUp = (e) => {
+        document.removeEventListener('pointermove', onMove);
+        const targetCol = columnIdAt(e.clientX, e.clientY) || drag.fromCol;
+        $$('.col-body').forEach(c=>c.classList.remove('drop-target'));
+        const movedToOther = targetCol && targetCol !== drag.fromCol;
+        const id = drag.id; const fromCol = drag.fromCol; destroyGhost(drag.ghost); drag = null;
+        card.classList.remove('dragging');
+        if(movedToOther){ splitQuantityFlow(id, fromCol, targetCol); }
+      };
+
+      card.addEventListener('pointerdown', onPointerDown);
+      card.addEventListener('pointerup', onPointerCancel);
+      card.addEventListener('pointercancel', onPointerCancel);
+      card.addEventListener('pointerleave', ()=>{ /* ignore */ });
+    }
+
+    function createGhost(el){ const g = el.cloneNode(true); g.classList.remove('dragging'); g.classList.add('drag-ghost'); document.body.appendChild(g); return g; }
+    function destroyGhost(g){ if(g && g.parentNode) g.parentNode.removeChild(g); }
+    function positionGhost(g, x, y){ g.style.transform = `translate(${x+12}px, ${y+12}px)`; }
+
+    function findColumnId(el){ let p = el.parentElement; while(p && !p.classList.contains('col-body')) p = p.parentElement; return p ? p.id : null; }
+    function columnIdAt(x, y){ const el = document.elementFromPoint(x,y); if(!el) return null; const body = el.closest('.col-body'); return body ? body.id : null; }
+    function highlightColumnAt(x, y){ $$('.col-body').forEach(c=>c.classList.remove('drop-target')); const id = columnIdAt(x,y); if(id){ $('#'+id).classList.add('drop-target'); } }
+
+    // ---- Slot-Dialog ----
+    const dlg = document.getElementById('dlg-slot');
+    const sel = document.getElementById('slot-select');
+    const search = document.getElementById('slot-search');
+
+    function refreshOptions(filter=''){
+      sel.innerHTML = '';
+      const f = filter.trim().toLowerCase();
+      const items = SLOT_LIST.filter(x => x.toLowerCase().includes(f));
+      for(const s of items){ const opt = document.createElement('option'); opt.value = s; opt.textContent = s; sel.appendChild(opt); }
+      if(sel.options.length) sel.selectedIndex = 0;
+      $('#dlg-slot-desc').textContent = `Verfügbare Plätze: ${SLOT_LIST.length}`;
+    }
+
+    function chooseStorageSlot(pref=''){
+      refreshOptions(pref);
+      if(typeof dlg.showModal === 'function'){
+        return new Promise(resolve => {
+          const onClose = (e)=>{ dlg.removeEventListener('close', onClose); resolve(dlg.returnValue==='ok'? sel.value: null); };
+          dlg.addEventListener('close', onClose, { once: true });
+          dlg.showModal();
+        });
+      } else {
+        const picked = prompt('Lagerplatz (z. B. P-R2 2-17):', pref||'');
+        return Promise.resolve(picked && SLOT_LIST.includes(picked) ? picked : null);
+      }
+    }
+
+    search.addEventListener('input', ()=> refreshOptions(search.value));
+
+    // ---- Import/Export + Reset ----
+    $('#btnExportJSON').addEventListener('click', ()=> download(`lager-demo-${Date.now()}.json`, JSON.stringify(state, null, 2)));
+    $('#btnExportCSV').addEventListener('click', ()=>{
+      const rows = Object.values(state.items).map(it => ({ id: it.id, name: it.name, qty: it.qty, container: it.container, ort: state.locations[it.loc]?.name || it.loc, slot: it.slot||'' }));
+      const csv = toCSV(rows);
+      download(`lager-items-${Date.now()}.csv`, csv);
+    });
+    $('#impJson').addEventListener('change', (e)=>{ const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ try{ const obj=JSON.parse(r.result); if(obj.items && obj.locations){ state=obj; save(state); render(); } else alert('Ungültiges JSON.'); }catch{ alert('JSON konnte nicht gelesen werden.'); } }; r.readAsText(f); e.target.value=''; });
+    $('#impCsv').addEventListener('change', (e)=>{ const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ try{ const rows=fromCSV(r.result); const locNameToId=(name)=>{ const pair=Object.entries(state.locations).find(([,v])=>v.name===name); return pair?pair[0]:'storage'; }; const items={}; rows.forEach(row=>{ const id=row.id||`i${Math.random().toString(36).slice(2,8)}`; items[id]={ id, name: row.name||'Unbenannt', qty: Number(row.qty)||0, container: row.container||'GIB', loc: locNameToId(row.ort||'Lagerplatz'), slot: row.slot||'' }; }); state.items = items; save(state); render(); }catch{ alert('CSV konnte nicht gelesen werden.'); } }; r.readAsText(f); e.target.value=''; });
+
+    // Lagerplätze CSV laden
+    $('#impSlots').addEventListener('change', (e)=>{ const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ try{ const rows = fromCSV(r.result); const slots = rows.map(r=> (r.slot||'').trim()).filter(Boolean); if(!slots.length) throw new Error('keine Zeilen mit Spalte "slot"'); const unique = Array.from(new Set(slots)); SLOT_LIST = unique; saveSlots(SLOT_LIST); alert(`Lagerplätze geladen: ${unique.length}`); } catch(err){ alert('Slots-CSV ungültig: erwartet Spalte "slot".'); } finally { e.target.value=''; } }; r.readAsText(f); });
+
+    // Lagerplätze exportieren
+    $('#btnExportSlots').addEventListener('click', ()=>{
+      const csv = 'slot\n' + SLOT_LIST.map(s=>`"${s.replace(/"/g,'""')}"`).join('\n');
+      download(`lagerplaetze-${Date.now()}.csv`, csv);
+    });
+
+    // ---- Admin / PIN ----
+    const PIN_KEY = 'admin-pin-sha256-v1';
+    let isAdmin = false;
+
+    async function sha256(text){
+      const enc = new TextEncoder();
+      const buf = await crypto.subtle.digest('SHA-256', enc.encode(text));
+      return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+    }
+    async function loadPinHash(){ try{ return localStorage.getItem(PIN_KEY)||''; }catch{ return ''; } }
+    async function savePinHash(hash){ try{ localStorage.setItem(PIN_KEY, hash); }catch{} }
+
+    async function setPin(newPin){ if(!newPin || newPin.length<4) throw new Error('PIN zu kurz'); const h=await sha256(newPin); await savePinHash(h); return true; }
+    async function verifyPin(pin){ const h=await loadPinHash(); if(!h) return false; const hp=await sha256(pin); return h===hp; }
+
+    function updateAdminBadge(){ const el=$('#adminState'); if(!el) return; el.textContent = isAdmin? 'Admin' : 'Gast'; el.style.color = isAdmin? '#166534' : '#64748b'; }
+
+    function openDialog(dlgEl){ return new Promise(resolve=>{ const onClose=()=>{ dlgEl.removeEventListener('close', onClose); resolve(dlgEl.returnValue); }; dlgEl.addEventListener('close', onClose, {once:true}); dlgEl.showModal(); }); }
+
+    $('#btnAdminLogin').addEventListener('click', async ()=>{
+      const hasPin = !!(await loadPinHash());
+      if(!hasPin){ alert('Noch keine PIN gesetzt. Bitte zuerst "PIN setzen" verwenden.'); return; }
+      $('#auth-pin').value='';
+      const rv = await openDialog($('#dlg-auth'));
+      if(rv==='ok'){
+        const ok = await verifyPin($('#auth-pin').value);
+        if(ok){ isAdmin = true; updateAdminBadge(); alert('Admin aktiv.'); } else { alert('Falsche PIN.'); }
+      }
+    });
+
+    $('#btnSetPin').addEventListener('click', async ()=>{
+      $('#pin-a').value=''; $('#pin-b').value='';
+      const rv = await openDialog($('#dlg-pin'));
+      if(rv==='ok'){
+        const a=$('#pin-a').value, b=$('#pin-b').value; if(a!==b){ alert('PIN stimmt nicht überein.'); return; }
+        try{ await setPin(a); alert('PIN gespeichert.'); }catch(e){ alert(e.message||'PIN ungültig'); }
+      }
+    });
+
+    function guardAdminToggle(cbEl, apply){
+      return async ()=>{
+        const desired = cbEl.checked;
+        if(!isAdmin){
+          const hasPin = !!(await loadPinHash());
+          if(!hasPin){ alert('Keine PIN gesetzt. Bitte zuerst "PIN setzen" verwenden.'); cbEl.checked = !desired; return; }
+          $('#auth-pin').value='';
+          const rv = await openDialog($('#dlg-auth'));
+          const ok = (rv==='ok') && await verifyPin($('#auth-pin').value);
+          if(!ok){ cbEl.checked = !desired; return; }
+          isAdmin = true; updateAdminBadge();
+        }
+        apply(desired, true);
+      };
+    }
+
+    function setLockSetting(val, asAdmin){ if(!asAdmin) return; state.settings.lockHome = !!val; save(state); }
+    function setOverrideSetting(val, asAdmin){ if(!asAdmin) return; state.settings.allowOverride = !!val; save(state); }
+
+    $('#cbLock').addEventListener('change', guardAdminToggle($('#cbLock'), setLockSetting));
+    $('#cbOverride').addEventListener('change', guardAdminToggle($('#cbOverride'), setOverrideSetting));
+
+    updateAdminBadge();
+
+    $('#btnReset').addEventListener('click', ()=>{ if(confirm('Demo wirklich zurücksetzen?')){ state = initialData(); save(state); render(); }});
+    $('#btnLogClear').addEventListener('click', ()=>{ state.log = []; save(state); render(); });
+
+    // ---- Tests ----
+    function assert(name, cond){ const box = document.createElement('div'); box.className = cond? 'test-pass':'test-fail'; box.textContent = (cond? '✔ ':'✖ ')+ name; $('#testout').prepend(box); return cond; }
+
+    // Test 0: `invoke` vorhanden
+    document.getElementById('t0').addEventListener('click', ()=>{
+      $('#testout').innerHTML='';
+      const ok1 = assert('globalThis.invoke ist Funktion', typeof globalThis.invoke === 'function');
+      const ok2 = assert('window.invoke ist Funktion', typeof window.invoke === 'function');
+      let ok3 = false; try { invoke().then(()=> assert('invoke() ist aufrufbar', true)); ok3 = true; } catch { /* ignore */ }
+      if(ok1 && ok2 && ok3) assert('Test 0 gesamt', true); else assert('Test 0 gesamt', false);
+    });
+
+    // Admin test helpers
+    function __test_setAdmin(val){ isAdmin = !!val; updateAdminBadge(); }
+    function __test_pinSet(){ return !!localStorage.getItem('admin-pin-sha256-v1'); }
+
+    // Test 1: Ganze Menge bewegen i1 inbound -> storage
+    $('#t1').addEventListener('click', ()=>{
+      $('#testout').innerHTML='';
+      const id = 'i1'; const from='inbound', to='storage';
+      const origChoose = chooseStorageSlot; chooseStorageSlot = ()=> Promise.resolve(SLOT_LIST[0]);
+      splitQuantityFlow(id, from, to, Number(state.items[id].qty));
+      const ok1 = assert('i1 neue Spalte = storage', state.items[id].loc==='storage');
+      const ok2 = assert('Slot gesetzt', !!state.items[id].slot);
+      const ok3 = assert('Slot ∈ Liste', SLOT_LIST.includes(state.items[id].slot));
+      const logHead = state.log[0]||{}; const ok4 = assert('Log-Eintrag Typ Umbuchung', logHead.typ==='Umbuchung');
+      if(ok1&&ok2&&ok3&&ok4) assert('Test 1 gesamt', true); else assert('Test 1 gesamt', false);
+      chooseStorageSlot = origChoose;
+    });
+
+    // Test 2: Teilmenge 7 bewegen i2 inbound -> pbs
+    $('#t2').addEventListener('click', ()=>{
+      $('#testout').innerHTML='';
+      const id='i2'; const from='inbound', to='pbs'; const startQty = Number(state.items[id].qty);
+      splitQuantityFlow(id, from, to, 7);
+      const newIds = Object.keys(state.items).filter(k=>k!==id && state.items[k].name===state.items[id].name && state.items[k].loc===to);
+      const created = newIds.map(k=>state.items[k]).find(x=>x.qty===7);
+      const ok1 = assert('Teilmenge-Item existiert (7)', !!created);
+      const ok2 = assert('Restmenge am Ursprung = start-7', Number(state.items[id].qty)===startQty-7);
+      const ok3 = assert('Log-Eintrag Typ Teilmenge', (state.log[0]||{}).typ==='Umbuchung (Teilmenge)');
+      if(ok1&&ok2) assert('Test 2 gesamt', true); else assert('Test 2 gesamt', false);
+    });
+
+    // Test 3: Export/Import Roundtrip
+    $('#t3').addEventListener('click', ()=>{
+      $('#testout').innerHTML='';
+      const rows = Object.values(state.items).map(it=>({ id:it.id, name:it.name, qty:it.qty, container:it.container, ort: state.locations[it.loc].name, slot: it.slot||'' }));
+      const csv = toCSV(rows);
+      const parsed = fromCSV(csv);
+      const ok1 = assert('Roundtrip: gleiche Anzahl Zeilen', parsed.length===rows.length);
+      const ok2 = assert('Roundtrip: Spalten vorhanden', ['id','name','qty','container','ort','slot'].every(h=>h in parsed[0]));
+      if(ok1&&ok2) assert('Test 3 gesamt', true); else assert('Test 3 gesamt', false);
+    });
+
+    // Test 4: Slot-Zuordnung (separat als Button)
+    $('#t4').addEventListener('click', ()=>{
+      $('#testout').innerHTML='';
+      const id='i1'; const from='inbound', to='storage';
+      const origChoose = chooseStorageSlot; chooseStorageSlot = ()=> Promise.resolve(SLOT_LIST[0]);
+      splitQuantityFlow(id, from, to, Number(state.items[id].qty));
+      const ok1 = assert('i1 in storage', state.items[id].loc==='storage');
+      const ok2 = assert('Slot gesetzt', !!state.items[id].slot);
+      const ok3 = assert('Slot ∈ Liste', SLOT_LIST.includes(state.items[id].slot));
+      if(ok1&&ok2&&ok3) assert('Test 4 gesamt', true); else assert('Test 4 gesamt', false);
+      chooseStorageSlot = origChoose;
+    });
+
+    // Test 5: Sperre Heimatplatz blockt falschen Slot (ohne Override)
+    $('#t5').addEventListener('click', ()=>{
+      $('#testout').innerHTML='';
+      state.homeMap['MAT-001'] = 'P-R2 1-1'; state.settings.lockHome = true; state.settings.allowOverride = false; save(state);
+      const id='i1'; const from='inbound', to='storage';
+      const origChoose = chooseStorageSlot; chooseStorageSlot = ()=> Promise.resolve('P-R2 1-2');
+      const before = JSON.stringify(state.items[id]);
+      splitQuantityFlow(id, from, to, Number(state.items[id].qty));
+      const after = JSON.stringify(state.items[id]);
+      const ok1 = assert('Bewegung blockiert (Item unverändert)', before===after);
+      const ok2 = assert('Sperre aktiv', state.settings.lockHome && !state.settings.allowOverride);
+      if(ok1&&ok2) assert('Test 5 gesamt', true); else assert('Test 5 gesamt', false);
+      chooseStorageSlot = origChoose;
+    });
+
+    // Test 6: Override braucht Admin
+    $('#t6').
