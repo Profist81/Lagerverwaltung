@@ -1,5 +1,5 @@
 // 5. sw.js
-const CACHE = 'lager-cache-v1';
+const CACHE = 'lager-cache-v6';
 const CORE = [
   './',
   './index.html',
